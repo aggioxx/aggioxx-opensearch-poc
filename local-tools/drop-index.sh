@@ -1,0 +1,1 @@
+curl -X DELETE "https://localhost:9200/news_articles" -u admin:Gui753357# --insecure
