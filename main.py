@@ -29,18 +29,18 @@ NEWS_API_URL = "https://newsapi.org/v2/top-headlines"
 COUNTRY = "us"
 
 # Load BERT model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-model = AutoModel.from_pretrained("bert-base-uncased")
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/multi-qa-mpnet-base-dot-v1")
+model = AutoModel.from_pretrained("sentence-transformers/multi-qa-mpnet-base-dot-v1")
 
 def get_embedding(text):
     """
-    Get BERT embedding for a given text.
+    Get embedding for a given text with expanded dimensionality to 1536.
     """
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
     with torch.no_grad():
         outputs = model(**inputs)
-    embedding = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()  # Average pooling
-    return embedding.tolist()
+    embedding = outputs.last_hidden_state.mean(dim=1).squeeze().tolist()
+    return embedding
 
 def fetch_and_index_news():
     """
@@ -87,17 +87,41 @@ def create_index_if_not_exists():
         index_body = {
             "settings": {
                 "index": {
-                    "knn": True
+                    "knn": True,
+                    "knn.algo_param": {
+                        "ef_search": 512
+                    },
+                },
+                "analysis": {
+                    "analyzer": {
+                        "default": {
+                            "type": "standard",
+                            "stopwords": "_english_"
+                        }
+                    }
                 }
             },
             "mappings": {
                 "properties": {
-                    "title": {"type": "text"},
-                    "description": {"type": "text"},
-                    "content": {"type": "text"},
+                    "title": {
+                        "type": "text",
+                        "analyzer": "standard",
+                        "boost": 2.0
+                    },
+                    "description": {
+                        "type": "text",
+                        "analyzer": "standard",
+                        "boost": 1.5
+                    },
+                    "content": {
+                        "type": "text",
+                        "analyzer": "standard",
+                        "boost": 1.0
+                    },
                     "embedding": {
                         "type": "knn_vector",
-                        "dimension": 768
+                        "dimension": 768,
+                        "similarity": "cosine"
                     }
                 }
             }
@@ -116,11 +140,24 @@ def search_articles():
         search_body = {
             "size": 5,
             "query": {
-                "knn": {
-                    "embedding": {
-                        "vector": query_embedding,
-                        "k": 5
-                    }
+                "bool": {
+                    "must": [
+                        {
+                            "knn": {
+                                "embedding": {
+                                    "vector": query_embedding,
+                                    "k": 3
+                                }
+                            }
+                        },
+                        {
+                            "multi_match": {
+                                "query": query,
+                                "fields": ["title", "description", "content"],
+                                "operator": "or"
+                            }
+                        }
+                    ],
                 }
             }
         }
